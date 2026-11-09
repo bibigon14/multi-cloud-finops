@@ -25,7 +25,9 @@ multi-cloud-finops/
 
 - **v0.1** - GCP: BigQuery billing export (Standard + Detailed + FOCUS)
   wired, reference queries validated against a live billing account,
-  one Grafana dashboard (`MTD by service`), one burn-rate alert
+  one Grafana dashboard (`MTD by service`), one burn-rate alert.
+  First real incident caught on day zero: see
+  [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
 - **v0.2** (next) - AWS: CUR export to S3 + Athena table, second
   datasource in the same Grafana
 - **v0.3** - OCI usage report + Azure cost export
