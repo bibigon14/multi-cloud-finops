@@ -1,0 +1,33 @@
+# Grafana datasource provisioning for the GCP BigQuery billing export.
+#
+# Deploy via the kube-prometheus-stack Grafana sidecar by applying a
+# ConfigMap with label grafana_datasource=1 containing this YAML.
+#
+# The service-account JSON key goes in a separate Kubernetes Secret
+# that is mounted into the Grafana pod - do NOT paste key material
+# into this file. The datasource block below references the mounted
+# path.
+
+apiVersion: 1
+
+datasources:
+  - name: BigQuery (billing)
+    type: grafana-bigquery-datasource
+    access: proxy
+    isDefault: false
+    uid: bq-billing-export
+    jsonData:
+      authenticationType: jwt
+      defaultProject: dstepanov-gke-platform
+      flatRateProject: dstepanov-gke-platform
+      processingLocation: US
+      clientEmail: grafana-bq-reader@dstepanov-gke-platform.iam.gserviceaccount.com
+      tokenUri: https://oauth2.googleapis.com/token
+    secureJsonData:
+      # Grafana reads the file at this path at startup. Mount the SA
+      # key JSON as /var/lib/grafana/sa/grafana-bq-reader.json via a
+      # Kubernetes Secret and set this field to the file content, OR
+      # set GOOGLE_APPLICATION_CREDENTIALS on the Grafana pod and drop
+      # this block entirely.
+      privateKey: "${BQ_SA_PRIVATE_KEY}"
+    editable: false

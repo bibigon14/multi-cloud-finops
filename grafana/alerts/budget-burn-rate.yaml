@@ -1,0 +1,71 @@
+# Grafana unified alerting rule - budget burn-rate.
+#
+# Mirrors the SRE Workbook "Multi-window multi-burn-rate" alert for
+# error budgets. Here the "budget" is the monthly spend cap and the
+# "error rate" is dollars per time.
+#
+# Two windows:
+#   fast (1h):  catches a runaway spike (forgotten GPU node, infinite
+#               loop hitting an API) before it burns the whole budget
+#   slow (6h):  catches a slow drift that's cheap-per-hour but
+#               cumulatively expensive (misconfigured retention policy
+#               silently growing GCS storage)
+#
+# Burn rate thresholds from the Workbook table, scaled to monthly:
+#   >= 14.4  → page immediately (burns budget in ~2 days)
+#   >= 6     → ticket (burns budget in ~5 days)
+#   >= 3     → warning (burns budget in ~10 days)
+
+apiVersion: 1
+
+groups:
+  - name: finops-burn-rate
+    interval: 5m
+    rules:
+      - uid: mcf-burn-fast
+        title: BudgetBurnRate_FastWindow
+        condition: C
+        for: 5m
+        annotations:
+          summary: "GCP budget burning at {{ $values.B.Value }}x expected rate over last 1h"
+          description: |
+            Monthly budget is on track to be exhausted in
+            {{ printf "%.1f" (div 30.0 $values.B.Value) }} days at the
+            current 1h burn rate. Likely cause: a resource provisioned
+            in the last hour that was not supposed to stay up
+            (forgotten node pool, a cron job that forgot to tear down
+            scratch storage, an uncapped API consumer).
+            Runbook: docs/runbooks/budget-burn.md
+        data:
+          - refId: A
+            datasourceUid: bq-billing-export
+            model:
+              rawSql: |
+                WITH window_cost AS (
+                  SELECT SUM(cost) AS c FROM `dstepanov-gke-platform.billing_export.gcp_billing_export_v1_0108CD_97A262_B94181`
+                  WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+                ), budget AS (SELECT 10.0 AS monthly_usd)
+                SELECT SAFE_DIVIDE(window_cost.c, budget.monthly_usd / (30 * 24)) AS burn_rate
+                FROM window_cost, budget
+              format: table
+              location: US
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator: {type: gt, params: [14.4]}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {type: last}
+                  type: query
+        labels:
+          severity: critical
+          scope: finops
+          cloud: gcp
