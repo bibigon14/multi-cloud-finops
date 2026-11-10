@@ -17,17 +17,32 @@ multi-cloud-finops/
 ├── terraform/            BQ dataset + IAM + Grafana service account
 ├── queries/              Reference SQL for each export format
 ├── grafana/              Datasource + dashboards + burn-rate alerts
-├── docs/                 Narrative, architecture, FOCUS awareness notes
+├── docs/
+│   ├── architecture.md   Data flow, three export types, Terraform scope
+│   ├── narrative.md      Why this exists, cross-cloud angle, resume read
+│   ├── decisions/        Architecture Decision Records (MADR)
+│   ├── incidents/        Post-mortems for incidents this project caught
+│   └── runbooks/         On-call runbooks for the alerts
 └── README.md             (you are here)
 ```
 
 ## Status
 
-- **v0.1** - GCP: BigQuery billing export (Standard + Detailed + FOCUS)
-  wired, reference queries validated against a live billing account,
-  one Grafana dashboard (`MTD by service`), one burn-rate alert.
-  First real incident caught on day zero: see
-  [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
+- **v0.1 (2026-11-09)** - GCP: BigQuery billing export (Standard +
+  Detailed + FOCUS) wired, reference queries validated against a live
+  billing account, one Grafana dashboard (`MTD by service`), one
+  burn-rate alert.
+  **Day-zero incident caught by this repo's own tooling.** 24 minutes
+  after the v0.1 scaffold shipped, the `cf-usage` helper surfaced that
+  the author's `sre-portfolio` Cloudflare Worker had exhausted the
+  Workers KV free-tier put quota. 8 minutes before Cloudflare's own
+  notification email arrived. Written up as a full SRE post-mortem,
+  turned into an architecture decision (ADR), and Phase 1 of the
+  migration to Cloudflare Analytics Engine shipped the same evening.
+  Live `writeDataPoint` traffic validated through the CF GraphQL
+  Analytics API within three hours of the quota hit.
+  - Post-mortem: [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
+  - Architecture decision: [`docs/decisions/0001-kv-to-analytics-engine.md`](docs/decisions/0001-kv-to-analytics-engine.md)
 - **v0.2** (next) - AWS: CUR export to S3 + Athena table, second
   datasource in the same Grafana
 - **v0.3** - OCI usage report + Azure cost export
