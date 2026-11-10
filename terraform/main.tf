@@ -35,3 +35,13 @@ resource "google_project_iam_member" "grafana_job_user" {
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.grafana_bq_reader.email}"
 }
+
+# metadataViewer lets the SA list datasets and tables in the project,
+# which the Grafana BigQuery plugin needs to populate its Dataset and
+# Table dropdowns. Without it, the Grafana query editor shows
+# "Failed to load datasets" even though hand-written SQL works.
+resource "google_project_iam_member" "grafana_metadata_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.metadataViewer"
+  member  = "serviceAccount:${google_service_account.grafana_bq_reader.email}"
+}

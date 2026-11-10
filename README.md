@@ -28,6 +28,17 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.1.1 (2026-11-10)** - Dashboard deployed to the homelab
+  Raspberry Pi 5 running systemd Grafana 13.2.1. BigQuery datasource
+  provisioned with a Terraform-managed service account
+  (`grafana-bq-reader`) that has `bigquery.dataViewer` on the
+  `billing_export` dataset plus `bigquery.jobUser` + `bigquery.metadataViewer`
+  on the project. Five-panel MTD dashboard live against real BQ data,
+  reachable publicly at
+  [grafana.dstepanov.dev](https://grafana.dstepanov.dev/).
+
+  ![Live MTD dashboard - production-grade homelab deploy with real BigQuery billing data](docs/screenshots/01-mtd-dashboard-live.png)
+
 - **v0.1 (2026-11-09)** - GCP: BigQuery billing export (Standard +
   Detailed + FOCUS) wired, reference queries validated against a live
   billing account, one Grafana dashboard (`MTD by service`), one
