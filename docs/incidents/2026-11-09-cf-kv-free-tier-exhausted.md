@@ -4,7 +4,9 @@
 **Severity**: SEV-3 (user-visible counter stale, no revenue impact)
 **Duration**: ~13.5 hours (10:30 PT 2026-11-09 to 00:00 UTC 2026-11-10)
 **Detected by**: `cf-usage` shell function, first run against live Cloudflare
-account, 24 minutes after shipping this repo's v0.1.
+account, 24 minutes after shipping this repo's v0.1. Cloudflare's own 90%
+warning email landed earlier (09:32 PT) but in a general-purpose inbox
+where no one was watching; the hard-quota 429s started at 10:25 PT.
 
 ## Summary
 
@@ -27,10 +29,12 @@ All times PT (UTC-08) unless noted.
 
 | Time | Event |
 |---|---|
+| 09:32 | Cloudflare notification email delivered to `dstepanov77@icloud.com`: *"KV daily operation limit 90% reached"*. Landed in a general-purpose inbox, went unread for ~3 hours - the alert existed, but nobody was watching the channel it arrived on. |
 | 10:06 | `multi-cloud-finops` v0.1 shipped; repo scaffold pushed to GitHub |
 | 10:17 | `sre-portfolio` Worker redeployed with the new `multi-cloud-finops` project card and updated `CI_REPOS` / `WATCHED_REPOS` constants |
+| 10:25 | Cloudflare notification email delivered: *"KV daily operation limit exceeded"* - hard quota hit, puts now return 429 |
 | 10:30 | First-ever `cf-usage` run against the live Cloudflare account; GraphQL Analytics reported `sre-portfolio: req=12912 err=0 subreq=13974` and `purrmeowca: req=5905 err=0 subreq=4888` over the last 24h window |
-| 10:38 | Cloudflare notification email delivered: *"KV requests are temporarily blocked - You have exceeded the daily Workers KV free tier limit of 1,000 put operations. Operations are blocked until the limit resets on 2026-11-10 at 00:00:00 UTC"* |
+| 10:38 | 90%-and-exceeded emails read for the first time; root cause investigation starts |
 | 10:40 | Root cause localized in `worker.js:trackVisit()` - per-request KV writes with an in-memory 60-second dedup cache |
 | ~11:00 | Fix deployed: `DEDUPE_WINDOW_MS` bumped from 60s to 1h; in-memory cache capacity raised from 1,000 entries to 10,000 so hot entries survive more cold starts (`sre-worker` commit `adc8490`) |
 | 00:00 UTC (16:00 PT) | KV put quota reset by Cloudflare; visitor tracking resumes |
@@ -119,7 +123,16 @@ free-tier budget consumed today" would have alerted at >= 80% around
    GCS Early Delete) instead hard-block, which is a worse failure
    mode than a surprise bill because it skips every traditional cost
    control that keys on dollars.
-3. **Validation that the project paid for itself in 24 minutes**.
+3. **Provider-side warnings are only as good as the channel they land
+   on**. Cloudflare's own 90% warning fired at 09:32 PT, well before
+   the quota wall, but it arrived as an email in a mixed inbox with
+   promotions and newsletters. The signal existed; the attention path
+   did not. A dashboard panel next to the rest of the infra would
+   have made the same signal visible in the context people actually
+   look at - the classic SRE argument for owning your own observability
+   layer instead of trusting vendor emails to reach the right human in
+   time.
+4. **Validation that the project paid for itself in 24 minutes**.
    `multi-cloud-finops` v0.1 was shipped at 10:06 PT. The `cf-usage`
    function it includes was first run at 10:30 PT. The incident it
    surfaced was observable in that same output, 8 minutes before
