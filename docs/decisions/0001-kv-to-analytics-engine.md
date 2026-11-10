@@ -2,6 +2,7 @@
 
 * Status: Accepted
 * Date: 2026-11-09
+* Revised: 2026-11-09 - initial free-tier assessment was incomplete; see below.
 * Deciders: Dmitry Stepanov
 * Technical Story: [day-zero incident post-mortem](../incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
 
@@ -26,60 +27,90 @@ architectural issue: Workers KV is the wrong primitive for a
 per-request time-series counter, and traffic growth will exhaust the
 quota again at a higher rate.
 
+## Revision note: free-tier assessment was incomplete
+
+The first draft of this record (committed 2026-11-09 at 17:28 PT)
+argued that migrating to Analytics Engine would keep the project's
+$0 recurring cost. That assertion was wrong.
+
+The first deploy attempt that evening failed with Cloudflare API error
+10089 ("You need to enable Analytics Engine"). Reading the dashboard
+revealed that Analytics Engine is gated behind the Workers Paid plan
+in 2026 pricing. The Analytics Engine dataset is free to create, but
+writing to it from a Worker requires the account to be on Workers Paid
+($5/month minimum).
+
+This record was revised the same evening to reflect the actual trade-off.
+The decision does not change - Analytics Engine is still the right
+primitive for a per-request counter - but the honest framing is that
+this is a **$5/month architectural decision**, not a free one. The
+rest of the record carries that framing.
+
 ## Decision Drivers
 
-* No new recurring dollar cost. A move to Workers Paid at $5/month
-  would solve the quota problem immediately but changes the project's
-  economics from free-tier-infrastructure-portfolio to
-  paid-tier-infrastructure-portfolio, a conversation about cost
-  trade-offs the repo already opens.
-* Narrative value. A deliberate migration from the wrong primitive to
-  the right one after a real production incident is a stronger
-  portfolio data point than a plan-upgrade purchase.
-* Read-path flexibility. KV stores one aggregated blob per IP keyed on
-  IP, which means the `/stats` endpoint can only answer questions
-  structured around that single key. Analytics Engine stores raw
-  events with up to 20 string dimensions and a time axis, and queries
-  through a GraphQL API with SQL-like aggregation. "Which country sent
-  the most scanner requests this week?" or "What was the hit rate on
-  /multi-cloud-finops in the first 24 hours?" are unanswerable from KV
-  without pre-aggregation, and trivially answerable from AE.
-* Migration safety. The system has to keep collecting visitor data
-  throughout the migration; reverting to the KV path has to remain
-  possible for the first ~30 days.
+* **Right primitive** - a per-request counter workload belongs in an
+  append-only time-series store built for high-volume writes, not in
+  a KV store that sorts documents by a single partition key. Workers
+  Paid moves KV's own limit from 1k to 1M puts/day, but that just buys
+  3 orders of magnitude of room in the wrong primitive.
+* **Query power** - KV stores one blob per IP. Questions beyond "how
+  many hits did this IP make" require pre-aggregation at write time,
+  which is why the current `trackVisit` code is 70 lines of in-place
+  state mutation. AE stores raw events with up to 20 string dimensions
+  and a time axis; the same `/stats` numbers are a single aggregation
+  query, and new questions ("which country sent the most scanner
+  requests this week") are new queries, not new write paths.
+* **Blast radius of growth** - at today's 12k req/day the KV-with-1h-
+  dedup fix is safe. At 10x traffic (plausible if a single post picks
+  up on Hacker News) the dedup ratio stays what it is, and the KV
+  write rate scales linearly with traffic until it hits the next
+  ceiling. AE's ceiling is 25M writes/day free; traffic would have
+  to grow 1,000x before that becomes a concern.
+* **Cost** - Workers Paid is $5/month flat. The decision is whether
+  $60/year is worth the above three. For a portfolio project whose
+  purpose is to demonstrate SRE judgment, choosing the right primitive
+  on a real production workload is the demonstration; refusing to
+  spend $5/month to make that choice available would itself be a
+  signal in the wrong direction.
 
 ## Considered Options
 
-### A. Upgrade to Workers Paid plan
+### A. Upgrade to Workers Paid plan, keep KV write path as-is
 
-$5/month flat, 1,000,000 KV puts/day, no further refactoring. Code
-stays identical to today.
+$5/month, 1,000,000 KV puts/day. Code stays identical to today.
 
-* Pros: zero refactoring risk; the quota problem disappears
-  immediately; same read path.
-* Cons: changes the project's cost posture from $0 to $5/month, which
-  the portfolio audience will notice; does not address that KV is
-  still the wrong primitive for this workload; a future increase in
-  traffic by 1000x hits the same ceiling in the same way.
+* Pros: zero refactoring risk; the quota problem disappears immediately.
+* Cons: pays $5/month for 1000x more quota on the **wrong primitive**;
+  future-me is still writing time-series counters into a document
+  store keyed on IP; a 1000x traffic growth hits the next ceiling in
+  exactly the same way; nothing is learned.
 
-### B. Migrate writes to Cloudflare Analytics Engine
+### B. Upgrade to Workers Paid plan and migrate writes to Analytics Engine
 
-Keep KV for cache-like use (GitHub events cache, CI status cache,
-dedup checkpoint). Move visitor-event writes to a new
-`sre_portfolio_visits` Analytics Engine dataset. Rewrite `/stats`
-endpoint to query AE through the Cloudflare GraphQL Analytics API.
+$5/month, same as option A, but the Worker writes events into a new
+`sre_portfolio_visits` AE dataset instead of (or in addition to) KV.
+`/stats` eventually reads from AE via the GraphQL Analytics API.
 
-* Pros: AE is purpose-built for append-only time-series counters at
-  Workers edge, with 25M writes/day free; read path becomes
-  strictly more powerful (arbitrary dimension aggregation); zero
-  recurring cost; a clean portfolio narrative ("learned the primitive
-  was wrong from a real incident, migrated").
-* Cons: write path and read path both change; stats endpoint has to
-  fetch over GraphQL inside the Worker, which needs an API token
-  stored as a Worker secret; AE stores raw events, so query cost
-  scales with window size.
+* Pros: $5 unlocks **both** the KV safety margin AND the correct
+  primitive for the actual workload; strictly more query power than
+  the KV blob-per-IP layout; the $5/month is the cost to make the
+  right architectural choice visible, not the cost of a workaround.
+* Cons: write and read paths both change; stats endpoint has to fetch
+  over GraphQL inside the Worker, needing an API token stored as a
+  Worker secret; a legitimate cost line that would not exist on
+  option C.
 
-### C. Durable Object counter per IP
+### C. Revert and stay on KV with the 1h dedup patch
+
+Keep the current shipped fix (`DEDUPE_WINDOW_MS` 60s → 1h). No further
+architectural change. Status quo of this evening's short-term patch.
+
+* Pros: zero recurring cost; code already deployed and verified.
+* Cons: still the wrong primitive, now with a 60x fudge factor in
+  front of it; next traffic growth cycle reopens the same ticket;
+  no portfolio story beyond the 2026-11-09 incident post-mortem.
+
+### D. Durable Object counter per IP
 
 Move each per-IP record into a DO instance. DO storage has its own
 quotas.
@@ -87,49 +118,67 @@ quotas.
 * Pros: strong consistency per IP.
 * Cons: DO is for strongly-consistent per-entity state (shopping
   carts, game sessions), not for a write-once-per-event ticker; DO
-  storage is still metered and would substitute one quota problem
-  for another; adds significant complexity.
+  storage is still metered and would substitute one quota problem for
+  another; adds significant complexity.
 
 ## Decision Outcome
 
-Chosen option: **B. Migrate writes to Cloudflare Analytics Engine.**
+Chosen option: **B. Upgrade to Workers Paid and migrate writes to
+Analytics Engine.**
 
-Analytics Engine is the correct primitive for this workload, offers
-strictly more query power than the KV blob-per-IP layout, and keeps
-the project's $0 recurring cost. The migration is staged to preserve
-safety:
+Option A buys quota headroom without fixing the architectural issue.
+Option C defers the question to the next traffic growth cycle. Option
+D substitutes a different quota.
+
+Option B is the only option that spends the $5/month deliberately -
+to unlock the correct primitive and to document that trade-off
+explicitly. The $5/month is itself a portfolio signal: an engineer
+who will not upgrade a personal project to the right architecture
+is an engineer who will do the same thing at work.
+
+Migration is staged for safety:
 
 * **Phase 1 (this change)**: dual-write. `trackVisit()` keeps the
-  existing KV put (now with 1h dedup, safe under quota) and in
-  parallel calls `env.ANALYTICS.writeDataPoint(...)` with the same
-  event. `/stats` endpoint keeps reading from KV. If AE writes are
-  wrong or the data model is off, nothing user-visible breaks.
+  existing KV put (now with 1h dedup) AND also calls
+  `env.ANALYTICS.writeDataPoint(...)`. `/stats` endpoint keeps reading
+  from KV. If AE writes are wrong or the data model is off, nothing
+  user-visible breaks. The KV path is a fallback for ~30 days.
 * **Phase 2 (~30 days later, once AE has useful history)**: rewrite
-  `loadVisitors(env, dateKey)` to issue a GraphQL query against
-  the `sre_portfolio_visits` dataset over `dateKey`'s UTC day,
-  aggregate per IP, and return the same shape the current KV reader
-  returns. Add a `CF_GRAPHQL_TOKEN` Worker secret with the account's
-  Analytics:Read scope. Switch `/stats` to the new path.
+  `loadVisitors(env, dateKey)` to issue a GraphQL query against the
+  `sre_portfolio_visits` dataset, aggregate per IP, and return the
+  same shape the current KV reader returns. Add a `CF_GRAPHQL_TOKEN`
+  Worker secret with Account:Analytics:Read scope. Switch `/stats`
+  to the new path. Validate output matches the KV-backed version
+  within rounding before removing the KV read.
 * **Phase 3**: drop the KV put from `trackVisit()`. Keep the KV
-  namespace itself because the `GH_CACHE_KEY`, `GH_CONTRIB_CACHE_KEY`,
+  namespace itself because `GH_CACHE_KEY`, `GH_CONTRIB_CACHE_KEY`,
   `GH_CI_CACHE_KEY` and the dedup checkpoint all still use it, at
-  much lower rates than visitor tracking did.
+  put rates that stay inside even the free-tier ceiling.
 
 ## Positive Consequences
 
-* Resolves the incident class permanently: AE free-tier ceiling is
-  25M writes/day, which at current rates would not be hit for over
-  5 years of traffic growth.
-* Enables questions the KV layout couldn't answer without pre-aggregation:
-  per-country/per-path/per-ISP top-N, time-of-day distribution, 90th
-  percentile referrer counts.
+* Resolves the incident class permanently. AE free-tier ceiling (now
+  accessible on Workers Paid) is 25M writes/day; at current rates
+  that is over 5 years of linear traffic growth.
+* Enables queries the KV layout couldn't answer without pre-aggregation:
+  per-country / per-path / per-ISP top-N, time-of-day distribution,
+   90th-percentile referrer counts. `/stats` becomes a GraphQL query,
+  not a KV iteration.
+* Simplifies `trackVisit` from a 70-line read-modify-write cycle with
+  per-day aggregation and retention cleanup into a single
+  `writeDataPoint` call plus owner skip and in-memory dedup.
 * Serves as a worked example in the `multi-cloud-finops` repo for
-  "right primitive after real-world quota incident", a pattern that
-  recurs across GCS lifecycle rules, Lambda concurrency, and DynamoDB
-  provisioned throughput.
+  "right primitive after real-world quota incident, including the
+  cost delta", a pattern that recurs across GCS lifecycle rules,
+  Lambda concurrency, and DynamoDB provisioned throughput.
 
 ## Negative Consequences
 
+* **New $5/month recurring cost.** First recurring cost on any
+  Cloudflare resource in this portfolio. The cost is documented and
+  deliberate; it is not a workaround expense. Break-even against the
+  engineering cost of debugging the next free-tier incident is
+  "roughly one more incident of similar scope".
 * Read path requires an HTTP fetch from inside the Worker (to the
   GraphQL API). Latency on `/stats` goes up from "KV read" to
   "outbound HTTPS". Acceptable because `/stats` is a Telegram command
@@ -137,15 +186,18 @@ safety:
 * Needs an API token stored as a Worker secret. The token has
   Account:Analytics:Read scope only; blast radius is read-only
   analytics data of the author's own Cloudflare account.
-* Phase 2 adds a dependency on GraphQL schema stability. Cloudflare
+* Phase 2 adds a dependency on the Cloudflare GraphQL schema. CF
   does occasionally rename dataset-adaptive-groups; the migration
-  code has to be defensive.
+  code has to be defensive and the query shape is explicitly fixed
+  in `queries/cf-analytics-engine/visitors-per-day.graphql`.
 
 ## Links
 
 * Incident post-mortem:
   [docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md](../incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
+* Cloudflare Workers pricing (Workers Paid section):
+  https://developers.cloudflare.com/workers/platform/pricing/
 * Cloudflare Analytics Engine docs:
   https://developers.cloudflare.com/analytics/analytics-engine/
-* Workers KV limits:
+* Workers KV limits (what we hit):
   https://developers.cloudflare.com/workers/platform/limits/#kv-limits
