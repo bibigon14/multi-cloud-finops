@@ -146,14 +146,18 @@ free-tier budget consumed today" would have alerted at >= 80% around
       stat with yellow at 0.7 and red at 0.9.
 - [ ] Add a Cloudflare GraphQL datasource provisioning file next to
       the BigQuery one in `grafana/datasources/`.
-- [ ] Evaluate whether `sre-portfolio`'s visitor tracking should move
-      from Workers KV to Cloudflare Analytics Engine (25M writes/day
-      free, built for append-only time-series counters). KV is the
-      wrong primitive for a per-request counter; this incident is the
-      excuse to migrate.
-- [ ] Alternative: move to Workers Paid plan ($5/month flat, 1M KV
-      puts/day). Document the break-even analysis in the migration
-      decision record.
+- [x] Evaluate whether `sre-portfolio`'s visitor tracking should move
+      from Workers KV to Cloudflare Analytics Engine. **Done, same day**
+      ([MADR 0001](../decisions/0001-kv-to-analytics-engine.md)).
+      Phase 1 (dual-write) shipped in sre-worker commit `bec742b` on
+      2026-11-09; Phase 2 (switch read path to GraphQL) is scheduled
+      for ~30 days later once AE has enough history for the stats
+      endpoint to read usefully; Phase 3 drops the KV put entirely.
+- [x] Alternative: move to Workers Paid plan ($5/month). **Not pursued**
+      per MADR 0001 - the AE migration keeps the project's $0
+      recurring cost and is strictly the right primitive for the
+      workload. Workers Paid is a correct answer for a different
+      project, not this one.
 
 ## Appendix: the output that surfaced the incident
 
