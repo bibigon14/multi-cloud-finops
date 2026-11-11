@@ -28,6 +28,26 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.2 (2026-11-10)** - AWS joins the multi-cloud dashboard.
+  Cost and Usage Report 2.0 export enabled in the live AWS account via
+  `aws_bcmdataexports_export`, writing hourly PARQUET to a dedicated
+  S3 bucket with lifecycle to GLACIER_IR at 90 days. Athena workgroup
+  with a 10 GiB per-query scan cap, Glue database, and a daily
+  schedule-driven Glue crawler. Dedicated IAM user `grafana-athena-reader`
+  (console access off) with a scoped policy that covers exactly the
+  workgroup, the Glue catalog entries for this database, and the two
+  S3 buckets involved - no `AmazonAthenaFullAccess` wildcard. Grafana
+  Athena datasource added as the second datasource on the same Pi;
+  dashboard now carries a parallel AWS row (MTD, burn rate, projected
+  month-end, bar by service, 30-day stacked trend) mirroring the GCP
+  row, with the two rows ready to combine through Grafana Mixed mode
+  for v0.4 unified-totals work.
+
+  CUR 2.0 delivers its first report within ~24 hours of enablement,
+  so the AWS panels show "No data" on the ship-day screenshot and
+  populate overnight. Expected behaviour, documented out loud rather
+  than hidden.
+
 - **v0.1.1 (2026-11-10)** - Dashboard deployed to the homelab
   Raspberry Pi 5 running systemd Grafana 13.2.1. BigQuery datasource
   provisioned with a Terraform-managed service account
@@ -54,30 +74,41 @@ multi-cloud-finops/
   Analytics API within three hours of the quota hit.
   - Post-mortem: [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
   - Architecture decision: [`docs/decisions/0001-kv-to-analytics-engine.md`](docs/decisions/0001-kv-to-analytics-engine.md)
-- **v0.2** (next) - AWS: CUR export to S3 + Athena table, second
-  datasource in the same Grafana
-- **v0.3** - OCI usage report + Azure cost export
+- **v0.3** (next) - OCI usage report + Azure cost export
 - **v0.4** - Cost-per-Kubernetes-namespace attribution via label
   propagation (GKE → BQ detailed export, EKS → CUR resource tags)
 - **v0.5** - Anomaly detection (z-score over 7-day rolling baseline)
 
-## v0.1 quickstart (GCP)
+## Quickstart
 
 Prerequisite: BigQuery billing export enabled in the Cloud Billing console
-(Standard, Detailed and FOCUS). See `docs/architecture.md` for the one-time
-setup. Data starts flowing within ~24 hours of enablement.
+(Standard, Detailed and FOCUS), AWS Billing + Data Exports accessible from
+the same AWS account. See `docs/architecture.md` for the one-time setup.
+Data starts flowing within ~24 hours of enablement on either cloud.
 
 ```bash
 cd terraform/
-terraform init
-terraform apply   # creates BQ dataset confirmation, Grafana SA, IAM
+terraform init -upgrade
+terraform apply   # GCP SA + IAM, AWS S3 + CUR 2.0 + Athena + Glue + IAM user
+
+# Fetch the Grafana AWS creds without echoing them to scrollback:
+terraform output -raw grafana_aws_access_key_id
+terraform output -raw grafana_aws_secret_key   # paste into Grafana secret store
 
 cd ..
 bq query --use_legacy_sql=false < queries/mtd-by-service.sql
+# (AWS equivalent runs once CUR 2.0's first delivery lands, ~24h after apply)
+aws athena start-query-execution \
+  --work-group multi-cloud-finops \
+  --query-string "$(cat queries/aws-mtd-by-service.sql)"
 ```
 
-Grafana import: `grafana/dashboards/mtd-by-service.json`, pointed at the
-BigQuery datasource provisioned by `grafana/datasources/bigquery.yaml`.
+Grafana wiring: `grafana/dashboards/mtd-by-service.json` carries both the
+GCP and the AWS rows. BigQuery datasource: provisioned by the bundled
+`bigquery.yaml` (datasource UID `bq-billing-export`). Athena datasource:
+provisioned as `aws-athena-cur` by `homelab-k3s/grafana/athena.yaml`,
+with the access key id and secret key pasted into Grafana's own secret
+store (never into the provisioning YAML).
 
 ## The SRE angle
 
