@@ -64,3 +64,49 @@ output "grafana_aws_setup_hint" {
     terraform output -raw aws_athena_results_bucket  # s3://.../results/
   EOT
 }
+
+# ---------------------------------------------------------------------------
+# Azure (v0.3 additions)
+# ---------------------------------------------------------------------------
+
+output "azure_storage_account" {
+  value       = azurerm_storage_account.cost_export.name
+  description = "Azure storage account that holds the daily Cost Management export blobs"
+}
+
+output "azure_cost_export_container" {
+  value       = azurerm_storage_container.cost_export.name
+  description = "Blob container under the storage account where Cost Management writes export blobs (first blob arrives within ~24h)"
+}
+
+output "grafana_azure_client_id" {
+  value       = azuread_application.grafana.client_id
+  description = "Client (application) ID of the Azure AD App Registration Grafana authenticates as"
+}
+
+output "grafana_azure_client_secret" {
+  value       = azuread_application_password.grafana.value
+  description = "Client secret for the Grafana App Registration - fetch with `terraform output -raw grafana_azure_client_secret`, paste into Grafana secret store, then wipe scrollback"
+  sensitive   = true
+}
+
+output "grafana_azure_tenant_id" {
+  value       = var.azure_tenant_id
+  description = "Entra ID tenant ID for the Grafana OAuth2 client credentials flow"
+}
+
+output "grafana_azure_subscription_id" {
+  value       = var.azure_subscription_id
+  description = "Subscription ID that scopes Cost Management API queries and the Reader role assignment"
+}
+
+output "grafana_azure_setup_hint" {
+  value = <<-EOT
+    # Pull the Grafana Azure credentials and the ARM wiring out of state:
+    terraform output -raw grafana_azure_tenant_id          # Entra tenant
+    terraform output -raw grafana_azure_subscription_id    # subscription id
+    terraform output -raw grafana_azure_client_id          # SP client id
+    terraform output -raw grafana_azure_client_secret      # SP client secret (one-year lifespan)
+    # Infinity datasource expects these four in its OAuth2 Client Credentials block.
+  EOT
+}

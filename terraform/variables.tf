@@ -79,3 +79,49 @@ variable "grafana_iam_user_name" {
   description = "IAM user with Athena read rights that Grafana's Athena datasource authenticates as"
   default     = "grafana-athena-reader"
 }
+
+# ---------------------------------------------------------------------------
+# Azure (v0.3 additions)
+# ---------------------------------------------------------------------------
+
+variable "azure_subscription_id" {
+  type        = string
+  description = "Azure subscription that owns the Cost Management export and the Grafana reader SP"
+  default     = "c395c797-0fbf-40e6-b1f8-b9a1eee8d838"
+}
+
+variable "azure_tenant_id" {
+  type        = string
+  description = "Entra ID tenant that hosts the Grafana App Registration and the subscription above"
+  default     = "b0c15b86-1306-4962-ad60-97937c9692cb"
+}
+
+variable "azure_location" {
+  type        = string
+  description = "Azure region for the FinOps resource group - storage pinned here, but Cost Management runs at subscription scope independent of location"
+  default     = "eastus"
+}
+
+variable "azure_resource_group" {
+  type        = string
+  description = "Resource group that holds the Cost Management export storage account and container; separate from the finops-demo-rg that holds the short-lived AKS workload"
+  default     = "multi-cloud-finops-rg"
+}
+
+variable "azure_storage_account_name" {
+  type        = string
+  description = "Globally-unique Azure storage account for the Cost Management export; must be 3-24 lowercase alphanumeric characters"
+  default     = "dstepanovmcfcostexp"
+}
+
+variable "azure_cost_export_name" {
+  type        = string
+  description = "Name of the subscription-scoped Cost Management export that writes daily Actual Cost blobs to the storage container"
+  default     = "multi-cloud-finops-cost-export"
+}
+
+variable "azure_app_name" {
+  type        = string
+  description = "Display name of the Azure AD App Registration that Grafana's Infinity datasource authenticates as"
+  default     = "grafana-cost-reader"
+}

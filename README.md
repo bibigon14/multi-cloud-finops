@@ -28,6 +28,34 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.3 (2026-11-11)** - Azure joins as the third cloud.
+  Cost Management Export (ActualCost, MonthToDate, Daily) writes to a
+  dedicated storage account via `azurerm_subscription_cost_management_export`;
+  an Entra App Registration + Service Principal with `Cost Management Reader`
+  (subscription scope) and `Storage Blob Data Reader` (container scope)
+  gives Grafana a least-privilege reader. The dashboard picks up a third
+  row - MTD stat, MTD by service bar chart, daily spend trend - with
+  all three panels reading live from the ARM Cost Management API via the
+  Grafana Infinity datasource over OAuth2 client credentials, not from
+  the daily export blobs (those stay as the v0.5 FOCUS federation input).
+  Three SRE-flavoured notes earned their inline comments the hard way:
+  the Cost Management API 429s around 10 calls/min per subscription, so
+  dashboard refresh is pinned to 1h; Infinity's `timestamp_format` only
+  fires on string JSON values but Azure returns `UsageDate` as integer,
+  so the timeseries runs a two-stage `convertFieldType` transform
+  (number -> string -> time with `YYYYMMDD`); Grafana flagged the
+  Infinity plugin as "modified signature" after an in-place datasource
+  UID update and needed `allow_loading_unsigned_plugins` in
+  `/etc/grafana/grafana.ini` to come back up.
+
+  ![Azure cost row - Cost Management API via Infinity, MTD $1.54; Virtual Machines dominate at $1.17 (AKS Standard_D2ads_v7 workload), Storage $0.31, Virtual Network $0.06; daily trend shows the two days AKS ran](docs/screenshots/04-mtd-dashboard-azure.png)
+
+  Three clouds, three distinct billing APIs (BigQuery export, Athena
+  over CUR 2.0 Parquet, ARM REST), one dashboard. The whole Azure row
+  was wired without opening the Azure portal for a dashboard edit -
+  Terraform for the cloud side, a Python patch for the dashboard JSON,
+  a Grafana API call for the import.
+
 - **v0.2.1 (2026-11-11)** - AWS data delivered, money-shot captured.
   CUR 2.0 first drop arrived ~24h after v0.2 enablement, nightly Glue
   crawler catalogued the partition, Athena datasource in Grafana started
@@ -98,10 +126,10 @@ multi-cloud-finops/
   Analytics API within three hours of the quota hit.
   - Post-mortem: [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
   - Architecture decision: [`docs/decisions/0001-kv-to-analytics-engine.md`](docs/decisions/0001-kv-to-analytics-engine.md)
-- **v0.3** (next) - OCI usage report + Azure cost export
-- **v0.4** - Cost-per-Kubernetes-namespace attribution via label
+- **v0.4** (next) - OCI Usage API integration (Always Free workload - no spend, demonstrates 4-cloud reach)
+- **v0.5** - Cost-per-Kubernetes-namespace attribution via label
   propagation (GKE → BQ detailed export, EKS → CUR resource tags)
-- **v0.5** - Anomaly detection (z-score over 7-day rolling baseline)
+- **v0.6** - Anomaly detection (z-score over 7-day rolling baseline)
 
 ## Quickstart
 
