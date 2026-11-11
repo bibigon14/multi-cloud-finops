@@ -20,7 +20,7 @@
 WITH mtd AS (
   SELECT
     ROUND(COALESCE(SUM(line_item_unblended_cost), 0.0), 4) AS spend
-  FROM multi_cloud_finops.multi_cloud_finops_cur2
+  FROM multi_cloud_finops.data
   WHERE billing_period = date_format(current_date, '%Y-%m')
     AND line_item_line_item_type IN (
       'Usage',

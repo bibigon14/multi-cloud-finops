@@ -28,6 +28,30 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.2.1 (2026-11-11)** - AWS data delivered, money-shot captured.
+  CUR 2.0 first drop arrived ~24h after v0.2 enablement, nightly Glue
+  crawler catalogued the partition, Athena datasource in Grafana started
+  returning live numbers. Panel queries then surfaced three real CUR 2.0
+  schema facts the ship-day code had gotten wrong (`SELECT *` not accepted
+  on CreateExport; `BILLING_VIEW_ARN` returned on every GetExport response
+  and the hashicorp/aws 5.100 provider trips on it when it is absent from
+  the plan; the flat column is `product_servicecode` - `AmazonEC2`,
+  `AmazonEKS`, etc - not `product_servicename`), all three fixed and
+  documented inline next to the resource they came from. One day of GCP
+  Autopilot + AWS EKS workload is enough to tell the SRE story in the
+  numbers.
+
+  ![GCP cost row - BigQuery billing export, MTD $4.40, burn rate 1.20 (within budget), projected $12.00; Compute Engine + Kubernetes Engine dominate](docs/screenshots/02-mtd-dashboard-gcp.png)
+
+  ![AWS cost row - CUR 2.0 via Athena, MTD $6.34, burn rate 1.73 (overrunning), projected $17.29; AmazonEKS control plane is 87% of spend, exactly the managed-service cost lesson every FinOps review teaches](docs/screenshots/03-mtd-dashboard-aws.png)
+
+  Side-by-side the two rows carry the actual portfolio point: same SRE
+  burn-rate SLO pattern over two clouds, same dashboard, same `Last 30
+  days` window, same green/yellow/red thresholds. The GCP side is
+  on-plan; the AWS side is overrunning because EKS control plane fee
+  ($0.10/h) compounded over two days already ate most of a $10 ceiling.
+  That is a real FinOps conversation starter, not a demo screenshot.
+
 - **v0.2 (2026-11-10)** - AWS joins the multi-cloud dashboard.
   Cost and Usage Report 2.0 export enabled in the live AWS account via
   `aws_bcmdataexports_export`, writing hourly PARQUET to a dedicated

@@ -7,9 +7,9 @@
 -- filter trims the extra month down to the exact 30-day window.
 SELECT
   date_trunc('day', line_item_usage_start_date) AS day,
-  product_servicename                           AS service,
+  product_servicecode                           AS service,
   ROUND(SUM(line_item_unblended_cost), 4)       AS cost_usd
-FROM multi_cloud_finops.multi_cloud_finops_cur2
+FROM multi_cloud_finops.data
 WHERE billing_period IN (
     date_format(current_date, '%Y-%m'),
     date_format(current_date - interval '1' month, '%Y-%m')

@@ -12,11 +12,11 @@
 -- console reports under "Service spend", so this query and the
 -- console agree on the same number.
 SELECT
-  product_servicename AS service,
+  product_servicecode AS service,
   ROUND(SUM(line_item_unblended_cost), 4) AS cost_usd,
   ROUND(SUM(CASE WHEN line_item_line_item_type = 'Credit'  THEN line_item_unblended_cost ELSE 0 END), 4) AS credits_usd,
   ROUND(SUM(CASE WHEN line_item_line_item_type = 'Refund'  THEN line_item_unblended_cost ELSE 0 END), 4) AS refunds_usd
-FROM multi_cloud_finops.multi_cloud_finops_cur2
+FROM multi_cloud_finops.data
 WHERE billing_period = date_format(current_date, '%Y-%m')
   AND line_item_line_item_type IN (
     'Usage',
@@ -26,6 +26,6 @@ WHERE billing_period = date_format(current_date, '%Y-%m')
     'SavingsPlanNegation',
     'Fee'
   )
-GROUP BY product_servicename
+GROUP BY product_servicecode
 ORDER BY cost_usd DESC
 LIMIT 50;
