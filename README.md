@@ -28,6 +28,25 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.3.1 (2026-11-11)** - Azure row symmetry.
+  Added burn rate stat + projected month-end stat so the Azure row
+  matches the GCP and AWS shape: three stats across the top (MTD /
+  burn / projected), bar chart and daily trend below. Same green /
+  yellow / red threshold ladder as the other two clouds (burn 1.0 /
+  1.5, projected at budget / 1.5x budget, $10/month portfolio budget).
+  Both new panels reuse the Infinity MTD-total query and compute the
+  derived number via Grafana `calculateField` transforms with
+  hardcoded `day_of_month / days_in_month` multipliers - the UQL
+  parser's date-math functions (`format_datetime`, `toint`, `now()`)
+  returned "No data" in this environment, so the pragmatic fix is a
+  daily patch script that regenerates the multipliers from today's
+  date and POSTs the dashboard back through the Grafana API. A
+  systemd timer on the Pi runs it at 00:05 UTC. Same-day shipped on
+  top of v0.3 to lock in the three-cloud money-shot before AKS / EKS
+  / GKE Autopilot workloads are torn down.
+
+  ![Azure row with burn + projected - $2.27 MTD / 0.62 burn (within budget) / $6.20 projected (under $10 ceiling); VMs $1.74 dominate, Storage $0.45, Virtual Network $0.08](docs/screenshots/05-mtd-dashboard-azure-v031.png)
+
 - **v0.3 (2026-11-11)** - Azure joins as the third cloud.
   Cost Management Export (ActualCost, MonthToDate, Daily) writes to a
   dedicated storage account via `azurerm_subscription_cost_management_export`;
