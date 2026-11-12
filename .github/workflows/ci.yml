@@ -1,0 +1,75 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: fmt
+        run: terraform fmt -check -recursive -diff
+      - name: init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: validate
+        run: terraform validate -no-color
+
+  dashboards:
+    name: grafana-dashboards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: JSON syntax
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, sys
+          errors = []
+          files = list(pathlib.Path("grafana/dashboards").rglob("*.json"))
+          for p in files:
+              try:
+                  json.loads(p.read_text())
+              except Exception as e:
+                  errors.append(f"{p}: {e}")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print(f"OK: {len(files)} dashboard JSON files parse")
+          PY
+
+  scripts:
+    name: python-scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: compile check
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(scripts/*.py)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no python scripts, skipping"
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            echo "checking $f"
+            python3 -m py_compile "$f"
+          done
+          echo "OK: ${#files[@]} python scripts compile"
