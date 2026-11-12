@@ -28,6 +28,82 @@ multi-cloud-finops/
 
 ## Status
 
+- **v0.5 (2026-11-12)** - Kubernetes namespace attribution (3-cloud).
+  Adds a new "Kubernetes namespace attribution" row underneath the GCP /
+  AWS / Azure MTD rows: three horizontal bar charts, one per cloud, each
+  showing cost attributed to the namespace where it was actually
+  consumed. Uses the native, cloud-first mechanism per vendor rather
+  than a uniform third-party overlay:
+  - **GCP**: GKE Cost Allocation feature enabled on the finops-demo
+    Autopilot cluster (`gcloud container clusters update
+    --enable-cost-allocation`). The `goog-k8s-namespace`,
+    `goog-k8s-cluster-name` and `goog-k8s-workload-name` labels start
+    flowing into the Detailed BigQuery billing export's `system_labels`
+    array on the first hourly flush post-enablement. First-time
+    activation can take up to 24h to backfill per GCP docs, so the
+    panel may show "No data" on ship-day and populate overnight.
+  - **AWS**: Container Insights add-on (`amazon-cloudwatch-observability`)
+    installed on the EKS cluster plus Split Cost Allocation Data opt-in
+    for Amazon EKS in Billing & Cost Management > Settings. SCAD then
+    writes `split_line_item_*` rows into CUR 2.0 with
+    `resource_tags['aws_eks_namespace']` populated by Container
+    Insights pod metrics. Nine new `split_line_item_*` columns added
+    to the CUR query_statement (actual_usage, parent_resource_id,
+    reserved_usage, split_cost, split_usage, split_usage_ratio,
+    unused_cost, public_on_demand_split_cost,
+    public_on_demand_unused_cost).
+  - **Azure**: The public Cost Management Query API does not expose
+    a Namespace/k8s dimension at subscription scope; the AKS Cost
+    Analysis blade in Azure Portal does but reads from a non-public
+    backend. The v0.5 Azure panel falls back to `ResourceGroupName`
+    grouping - a useful proxy because the AKS managed RG
+    (`MC_finops-demo-rg_finops-demo_eastus`) rolls up cluster VMs,
+    load balancer and nodes separately from the top-level workload
+    RG. Honest limitation worth calling out: full namespace
+    attribution on Azure waits on either Microsoft exposing the
+    dimension publicly or the project switching to a Cost Management
+    export -> Databricks/Synapse federation.
+
+- **v0.4.1 (2026-11-12)** - Cloudflare slice (Workers Paid + AE).
+  Adds a Cloudflare row with three stats: flat $5/month Workers Paid
+  plan cost, 30d request volume pulled live from the
+  sre_portfolio_visits Analytics Engine dataset via the AE SQL API,
+  and a computed cost-per-1k-requests ratio. Data plane: a new
+  `/api/cf-usage` endpoint in sre-worker signs outbound AE SQL
+  requests with an Account Analytics Read API token held as a Worker
+  secret, returns a flat JSON, caches for 1h in KV. The panel itself
+  reuses the same `web-urls` Infinity datasource created for the OCI
+  row. The point of the panel is the narrative around fixed-plan
+  services: they look "expensive per request" at low volume but are
+  justified by features (CPU time, AE access), not by request
+  headroom - a standard FinOps conversation about plan right-sizing.
+
+- **v0.4 (2026-11-12)** - OCI as the fourth cloud (Always Free).
+  Adds an OCI row with two panels: an Always Free $0.00 MTD stat and
+  a bar chart of 30d usage quantity by service (Compute ~10K OCPU-hours,
+  Block Storage, Virtual Cloud Network, Telemetry). OCI's Usage API
+  uses the draft-cavage HTTP Signatures authentication scheme
+  (`keyId=<tenancy>/<user>/<fingerprint>`, `algorithm=rsa-sha256`),
+  which Grafana Infinity's OAuth2 / Basic / Bearer modes do not
+  natively support, so rather than ship a Python side-car running on
+  the Pi or commit a static JSON blob to the repo, the integration
+  lives in sre-worker: a new `/api/oci-usage` endpoint implements OCI
+  signing from scratch in ~130 lines of WebCrypto (RSA-SHA256), caches
+  the response in KV for 1h, and returns a flat usage document that
+  the Grafana panel reads over a public HTTPS URL. Secrets handling
+  survives the two gotchas that bit during the integration pass:
+  trailing "OCI API KEY" footer comments inside the PEM file would
+  poison the base64 payload (strict BEGIN/END slice fix), and
+  `grep "^<field>=" ~/.oci/config` on a multi-profile config returns
+  one line per profile which `wrangler secret put` stores joined by
+  newlines (first-line trim on every secret).
+
+  A local fallback script `scripts/fetch_oci_usage.py` ships alongside
+  the proxy: it uses the OCI Python SDK locally to dump the same
+  payload shape to disk. Useful if the proxy is unavailable or for a
+  non-Grafana consumer; the dashboard itself always reads from the
+  Worker endpoint.
+
 - **v0.3.1 (2026-11-11)** - Azure row symmetry.
   Added burn rate stat + projected month-end stat so the Azure row
   matches the GCP and AWS shape: three stats across the top (MTD /
@@ -145,7 +221,6 @@ multi-cloud-finops/
   Analytics API within three hours of the quota hit.
   - Post-mortem: [`docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md`](docs/incidents/2026-11-09-cf-kv-free-tier-exhausted.md)
   - Architecture decision: [`docs/decisions/0001-kv-to-analytics-engine.md`](docs/decisions/0001-kv-to-analytics-engine.md)
-- **v0.4** (next) - OCI Usage API integration (Always Free workload - no spend, demonstrates 4-cloud reach)
 - **v0.5** - Cost-per-Kubernetes-namespace attribution via label
   propagation (GKE → BQ detailed export, EKS → CUR resource tags)
 - **v0.6** - Anomaly detection (z-score over 7-day rolling baseline)

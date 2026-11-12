@@ -39,3 +39,4 @@ build/
 grafana-bq-reader.json
 # Terraform plan files - contain sensitive outputs and go stale quickly
 *.tfplan
+data/
