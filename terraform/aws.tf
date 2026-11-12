@@ -136,7 +136,7 @@ resource "aws_s3_bucket_policy" "cur" {
 #     "unblended vs amortized vs effective" comparisons that come up
 #     the moment this account grows past hobby-scale.
 #   resource_tags : MAP of cost-allocation tags, including the
-#     `user:goog-k8s-namespace`-equivalent eks tag path, which v0.4
+#     `user:goog-k8s-namespace`-equivalent eks tag path, which v0.5
 #     pivots on for per-K8s-namespace attribution.
 #
 # ~70 well-chosen columns, every row of CUR 2.0 kept queryable, no
@@ -226,14 +226,23 @@ resource "aws_bcmdataexports_export" "cur2" {
         "savings_plan_start_time",
         "savings_plan_total_commitment_to_date",
         "savings_plan_used_commitment",
-        "resource_tags FROM COST_AND_USAGE_REPORT",
+        "resource_tags",
+        "split_line_item_actual_usage",
+        "split_line_item_parent_resource_id",
+        "split_line_item_public_on_demand_split_cost",
+        "split_line_item_public_on_demand_unused_cost",
+        "split_line_item_reserved_usage",
+        "split_line_item_split_cost",
+        "split_line_item_split_usage",
+        "split_line_item_split_usage_ratio",
+        "split_line_item_unused_cost FROM COST_AND_USAGE_REPORT",
       ])
       table_configurations = {
         COST_AND_USAGE_REPORT = {
           TIME_GRANULARITY                      = "HOURLY"
           INCLUDE_RESOURCES                     = "TRUE"
           INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY = "FALSE"
-          INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "FALSE"
+          INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "TRUE"
           # BILLING_VIEW_ARN is a newer Data Exports attribute that the
           # service echoes back on every GetExport call since Billing
           # Views shipped in 2025. The hashicorp/aws v5.100 provider
