@@ -64,6 +64,10 @@ multi-cloud-finops/
     dimension publicly or the project switching to a Cost Management
     export -> Databricks/Synapse federation.
 
+  ![Kubernetes namespace attribution row - all three clouds in one frame. GCP panel shows the inline noValue notice while GKE Cost Allocation backfills (labels appear in Detailed BQ system_labels once the first-time activation window closes); AWS SCAD shows pod-attributable cost split across five namespaces (kube-system $0.0576 control plane, amazon-cloudwatch $0.0533 Container Insights itself, team-data $0.0238, team-platform $0.0083, default $0); Azure RG fallback shows the AKS managed RG at $5.26, the user-facing workload RG at $1.43, the empty FinOps RG at $0](docs/screenshots/09-v0.5-namespace-row-full.png)
+
+  ![AWS SCAD close-up - Split Cost Allocation Data on a real EKS cluster. Five namespaces attributed from Container Insights pod metrics, dollar numbers computed from split_line_item_split_cost (not ratios). The $0.0533 amazon-cloudwatch bar is the Container Insights add-on billing its own observability apparatus - a useful reminder that namespace-level FinOps still has to budget for the measurement itself](docs/screenshots/08-v0.5-aws-scad-namespace-detail.png)
+
 - **v0.4.1 (2026-11-12)** - Cloudflare slice (Workers Paid + AE).
   Adds a Cloudflare row with three stats: flat $5/month Workers Paid
   plan cost, 30d request volume pulled live from the
@@ -77,6 +81,10 @@ multi-cloud-finops/
   services: they look "expensive per request" at low volume but are
   justified by features (CPU time, AE access), not by request
   headroom - a standard FinOps conversation about plan right-sizing.
+
+  ![Full five-cloud dashboard, top half - GCP + AWS + Azure three-stat symmetry (MTD / burn / projected) with the $10/month portfolio budget and the same green / yellow / red threshold ladder across all three. AWS is the burn leader at 5.91x with $23.66 MTD on an AmazonEKS-dominated bill, GCP burns 2.22x at $8.88 with Kubernetes Engine $4.68 on top, Azure burns 1.82x at $6.69 with AKS at $1.43](docs/screenshots/06-v0.4.1-overview-top-gcp-aws-azure.png)
+
+  ![Full five-cloud dashboard, bottom half - OCI Always Free at $0.00 MTD with 30d usage led by Compute at 10.08K OCPU-hours and Block Storage at 45.48 GB-hours, next to Cloudflare Workers Paid at flat $5.00/month paired to 284 live requests from the sre_portfolio_visits Analytics Engine dataset and a $17.61 cost-per-1k-requests ratio. The ratio is analytical, not a charge - $5 divided by live request count - and it drops as traffic grows, the FinOps-101 shape of fixed-plan right-sizing](docs/screenshots/07-v0.4.1-overview-bottom-oci-cf.png)
 
 - **v0.4 (2026-11-12)** - OCI as the fourth cloud (Always Free).
   Adds an OCI row with two panels: an Always Free $0.00 MTD stat and
