@@ -112,6 +112,18 @@ multi-cloud-finops/
   non-Grafana consumer; the dashboard itself always reads from the
   Worker endpoint.
 
+  **Cost incident filed during this ship window** (see
+  [docs/incidents/2026-11-12-eks-extended-support-penalty.md](docs/incidents/2026-11-12-eks-extended-support-penalty.md)):
+  the EKS cluster spun up for v0.4/v0.4.1/v0.5 demos accrued \$25.34 of
+  AWS spend over 46 hours - 83% of the window's AWS total - because
+  `eksctl create cluster` without an explicit `--version` flag landed on
+  Kubernetes `1.31`, which is in EKS Extended Support (\$0.60/hr vs
+  \$0.10/hr Standard, a 6x penalty). Shipping a FinOps dashboard without
+  pinning the K8s version on the clusters it runs on is exactly the
+  blind spot the dashboard exists to catch. Prevention script in place
+  as `scripts/eksctl-safe-create.sh` (refuses to call `eksctl` without
+  a version in Standard Support).
+
 - **v0.3.1 (2026-11-11)** - Azure row symmetry.
   Added burn rate stat + projected month-end stat so the Azure row
   matches the GCP and AWS shape: three stats across the top (MTD /
