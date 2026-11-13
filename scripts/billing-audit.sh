@@ -96,13 +96,26 @@ RUN az storage account list --output table | head -10
 
 echo
 echo "### OCI (Always Free sanity) ###"
-COMPARTMENT=$(timeout 10s oci iam compartment list --all --query 'data[0].id' --raw-output 2>/dev/null)
-if [ -n "$COMPARTMENT" ]; then
-  echo "-- Compute instances (Always Free shapes only expected) --"
-  RUN oci compute instance list --compartment-id "$COMPARTMENT" \
-    --query 'data[].{name:"display-name", shape:shape, state:"lifecycle-state"}' --output table | head -10
+# Use tenancy OCID directly from ~/.oci/config instead of `compartment list`
+# (the latter is slow on cold auth and needs --compartment-id-in-subtree for
+# sub-compartments; here we scan root only, where personal portfolio lives).
+TENANCY=$(grep -m1 "^tenancy=" "$HOME/.oci/config" 2>/dev/null | cut -d= -f2 | tr -d '\r')
+if [ -n "$TENANCY" ]; then
+  echo "-- Compute instances (Always Free: 4 OCPU + 24 GB total across A1.Flex) --"
+  RUN oci compute instance list --compartment-id "$TENANCY" \
+    --query 'data[?"lifecycle-state"!=`TERMINATED`].{name:"display-name", shape:shape, ocpu:"shape-config".ocpus, mem_gb:"shape-config"."memory-in-gbs", state:"lifecycle-state"}' \
+    --output table | head -15
+  echo "-- Block volumes (Always Free: 200 GB total) --"
+  RUN oci bv volume list --compartment-id "$TENANCY" \
+    --query 'data[?"lifecycle-state"!=`TERMINATED`].{name:"display-name", size_gb:"size-in-gbs", state:"lifecycle-state"}' \
+    --output table | head -10
+  echo "-- Boot volumes (count against the same 200 GB limit) --"
+  RUN oci bv boot-volume list --availability-domain "$(RUN oci iam availability-domain list --compartment-id "$TENANCY" --query 'data[0].name' --raw-output | tr -d '\n')" \
+    --compartment-id "$TENANCY" \
+    --query 'data[?"lifecycle-state"!=`TERMINATED`].{name:"display-name", size_gb:"size-in-gbs", state:"lifecycle-state"}' \
+    --output table | head -10
 else
-  echo "   oci CLI not configured or compartment lookup failed/timed-out"
+  echo "   ~/.oci/config missing or no tenancy field - OCI check skipped"
 fi
 
 echo
