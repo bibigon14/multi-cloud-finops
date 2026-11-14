@@ -1,0 +1,176 @@
+# Grafana unified alerting rule - cost anomaly detection.
+#
+# Fires when queries/anomaly-zscore.sql (GCP) or
+# queries/aws-anomaly-zscore.sql (AWS) returns one or more rows with
+# status='critical' - i.e. a service's daily spend is more than 3 standard
+# deviations above its own 7-day rolling baseline.
+#
+# Two independent rules, one per cloud, same shape, same severity. Keeping
+# them separate lets Grafana's alert UI show which cloud fired and lets the
+# receiver route each cloud to a different channel if needed.
+#
+# A 2h `for:` filters out the single-run blip cases that still clear the
+# noise floor - if a service is 3σ hot for one lonely query but back inside
+# the band on the next scheduled refresh, it was weather, not an incident.
+# If it's 3σ hot for two consecutive hourly refreshes, page it.
+#
+# Thresholds are deliberately absolute (count of critical rows >= 1), not
+# percentile-based. A z-score of 3+ on a baseline denoised floor of
+# $0.05/day already filters out the long tail of cent-level services.
+
+apiVersion: 1
+
+groups:
+  - name: finops-cost-anomaly
+    interval: 1h
+    rules:
+      - uid: mcf-anomaly-gcp
+        title: CostAnomaly_GCP
+        condition: C
+        for: 2h
+        annotations:
+          summary: "GCP cost anomaly: {{ $values.B.Value }} service(s) above 3σ baseline"
+          description: |
+            One or more GCP services have daily spend more than 3 standard
+            deviations above their own 7-day rolling baseline. This is the
+            signal the multi-cloud-finops dashboard was built to catch:
+            an unexpected resource (forgotten cluster, runaway autoscaler,
+            misconfigured retention) that would otherwise take a billing
+            cycle to show up on the monthly budget.
+
+            Inspect the "Cost anomaly detection" row of the dashboard
+            for the specific (service, day) rows that tripped the rule.
+            Cross-reference with Terraform state and the last 24h of
+            deploys to find the owning change.
+
+            Runbook: docs/runbooks/cost-anomaly.md
+        labels:
+          cloud: gcp
+          severity: warning
+        data:
+          - refId: A
+            datasourceUid: bq-billing-export
+            model:
+              rawSql: |
+                WITH daily AS (
+                  SELECT
+                    DATE(usage_start_time) AS day,
+                    service.description AS service,
+                    ROUND(SUM(cost), 4) AS cost_usd
+                  FROM `dstepanov-gke-platform.billing_export.gcp_billing_export_v1_0108CD_97A262_B94181`
+                  WHERE DATE(_PARTITIONTIME) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+                    AND cost > 0
+                  GROUP BY 1, 2
+                ),
+                baselined AS (
+                  SELECT
+                    day, service, cost_usd,
+                    AVG(cost_usd) OVER w AS m,
+                    STDDEV(cost_usd) OVER w AS s,
+                    COUNT(*) OVER w AS n
+                  FROM daily
+                  WINDOW w AS (
+                    PARTITION BY service
+                    ORDER BY UNIX_DATE(day)
+                    RANGE BETWEEN 7 PRECEDING AND 1 PRECEDING
+                  )
+                )
+                SELECT COUNT(*) AS critical_count
+                FROM baselined
+                WHERE day = CURRENT_DATE() - 1
+                  AND n >= 5
+                  AND m >= 0.05
+                  AND ABS(SAFE_DIVIDE(cost_usd - m, NULLIF(s, 0))) >= 3
+              format: table
+              location: US
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [B] }
+                  reducer: { params: [], type: last }
+                  type: query
+              expression: B
+
+      - uid: mcf-anomaly-aws
+        title: CostAnomaly_AWS
+        condition: C
+        for: 2h
+        annotations:
+          summary: "AWS cost anomaly: {{ $values.B.Value }} service(s) above 3σ baseline"
+          description: |
+            One or more AWS services have daily spend more than 3 standard
+            deviations above their own 7-day rolling baseline. Same mechanics
+            as the GCP rule: inspect the dashboard's "Cost anomaly detection"
+            row, correlate with recent deploys and Terraform plans.
+
+            Runbook: docs/runbooks/cost-anomaly.md
+        labels:
+          cloud: aws
+          severity: warning
+        data:
+          - refId: A
+            datasourceUid: aws-athena-cur
+            model:
+              rawSql: |
+                WITH daily AS (
+                  SELECT
+                    date_trunc('day', line_item_usage_start_date) AS day,
+                    product_servicecode AS service,
+                    ROUND(SUM(line_item_unblended_cost), 4) AS cost_usd
+                  FROM multi_cloud_finops.data
+                  WHERE billing_period IN (
+                      date_format(current_date, '%Y-%m'),
+                      date_format(current_date - interval '1' month, '%Y-%m')
+                    )
+                    AND line_item_usage_start_date >= current_date - interval '30' day
+                    AND line_item_line_item_type IN ('Usage', 'DiscountedUsage',
+                      'SavingsPlanCoveredUsage', 'SavingsPlanRecurringFee', 'Fee')
+                    AND line_item_unblended_cost > 0
+                  GROUP BY 1, 2
+                ),
+                baselined AS (
+                  SELECT day, service, cost_usd,
+                    AVG(cost_usd) OVER w AS m,
+                    STDDEV(cost_usd) OVER w AS s,
+                    COUNT(*) OVER w AS n
+                  FROM daily
+                  WINDOW w AS (
+                    PARTITION BY service
+                    ORDER BY day
+                    RANGE BETWEEN INTERVAL '7' DAY PRECEDING AND INTERVAL '1' DAY PRECEDING
+                  )
+                )
+                SELECT COUNT(*) AS critical_count
+                FROM baselined
+                WHERE day = current_date - interval '1' day
+                  AND n >= 5
+                  AND m >= 0.05
+                  AND ABS((cost_usd - m) / nullif(s, 0)) >= 3
+              format: table
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [B] }
+                  reducer: { params: [], type: last }
+                  type: query
+              expression: B
